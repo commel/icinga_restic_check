@@ -3,8 +3,16 @@ import argparse
 import subprocess
 import json
 import datetime
+import sys
+from enum import IntEnum
 
 CHECK_NAME = "restic"
+
+class IcingaState(IntEnum):
+    OK = 0
+    WARNING = 1
+    CRITICAL = 2
+    UNKNOWN = 3
 
 def run(args):
     base_cmd = '{restic_bin} -p {passwordfile} -r {repo}'.format(restic_bin=args.restic_bin, passwordfile=args.restic_repo_passwordfile, repo=args.restic_repo)
@@ -18,30 +26,52 @@ def run(args):
     u_tm = datetime.datetime.utcfromtimestamp(0)
     l_tm = datetime.datetime.fromtimestamp(0)
     l_tz = datetime.timezone(l_tm - u_tm)
-    now = datetime.datetime.now().replace(tzinfo=l_tz)
+    now = datetime.datetime.strptime(args.restic_compare_date, "%Y-%m-%d")
 
     warn_delta = datetime.timedelta(days=args.restic_snapshot_age_days_warn)
     crit_delta = datetime.timedelta(days=args.restic_snapshot_age_days_crit)
 
     for snapshot in snapshots:
-        print(f"Checking snapshot {snapshot['short_id']}")
+        # parse timestamp from snapshot
         snapshot_ident = f"{snapshot['short_id']} {snapshot['tags']}"
         s = snapshot['time']
         sanatized_ts = s[0:s.rfind('.')] + s[s.rfind('+'):].replace(":", "")
+
+        # timestamp from restic snapshot timestamp
         # TODO timezone parsing
-        snapshot_ts = datetime.datetime.strptime(sanatized_ts, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=l_tz)
-        delta_warn = snapshot_ts + warn_delta
-        delta_crit = snapshot_ts + crit_delta
         # only compare dates, not time
-        if delta_crit.date() - now.date() > crit_delta:
-            print(f"{snapshot_ident}: date {snapshot_ts} is older than warn days {args.restic_snapshot_age_days_warn}: WARN")
-            warns = warns + 1
-        elif delta_warn.date() - now.date() > warn_delta:
-            print(f"{snapshot_ident}: date {snapshot_ts} is older than crit days {args.restic_snapshot_age_days_crit}: CRIT")
+        snapshot_ts = datetime.datetime.strptime(sanatized_ts, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=l_tz).date()
+        ts_now = now.date()
+
+        snapshot_age = ts_now - snapshot_ts
+        if snapshot_age >= crit_delta:
+            if args.verbose:
+                print(f"{snapshot_ident}: date {snapshot_ts} is older than critical age of {args.restic_snapshot_age_days_crit} day(s): CRIT")
             crits = crits + 1
+        elif snapshot_age >= warn_delta:
+            if args.verbose:
+                print(f"{snapshot_ident}: date {snapshot_ts} is older than warning age of {args.restic_snapshot_age_days_warn} day(s): WARN")
+            warns = warns + 1
         else:
-            print(f"{snapshot_ident}: {snapshot['short_id']} from {snapshot_ts}: OK")
+            if args.verbose:
+                print(f"{snapshot_ident}: {snapshot['short_id']} from {snapshot_ts}: OK")
             oks = oks + 1
+
+    # calculate result
+    status = IcingaState.UNKNOWN
+    if oks > 0:
+        status = IcingaState.OK
+    if warns > 0:
+        status = IcingaState.WARNING
+    if crits > 0:
+        status = IcingaState.CRITICAL
+
+    count = oks + warns + crits
+
+    result = f"{status.name} {CHECK_NAME} snapshots={count}, ok={oks}, warn={warns}, crit={crits}"
+    print(result)
+
+    sys.exit(status.value)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="check_restic", description="Checker Plugin for Restic Backup")
@@ -51,7 +81,9 @@ if __name__ == "__main__":
     parser.add_argument("-restic_check_tags", type=str, required=True)
     parser.add_argument("-restic_snapshot_age_days_warn", type=int, default=1)
     parser.add_argument("-restic_snapshot_age_days_crit", type=int, default=2)
-    parser.add_argument("-restic_compare_date", type=str, default=datetime.datetime.strftime(datetime.datetime.now(), "%Y-%m-%dT%H:%M:%S.%f%z"))
+    parser.add_argument("-restic_compare_date", type=str, default=datetime.datetime.strftime(datetime.date.today(), "%Y-%m-%d"))
+    parser.add_argument('-v', '--verbose', action='store_true')
+
     args = parser.parse_args()
 
     run(args)

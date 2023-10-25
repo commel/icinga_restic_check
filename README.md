@@ -5,8 +5,6 @@ When one snapshot exceeds the warn timerange (in days), then WARN is set. If one
 
 You can check multiple snapshots, the result list is checked. The repo is read without setting a lock (so read only), which improves performance. Python3 is needed but no dependencies.
 
-This is still WIP and not working properly!
-
 ## Options
 
 ```./check_restic```
@@ -21,3 +19,11 @@ Optional:
 - ```-restic_compare_date```: The day that should be used to compare, default is now()
 - ```-restic_snapshot_age_days_warn```: At what day delta warn should be set
 - ```-restic_snapshot_age_days_crit```: At what day delta crit should be set
+- ```-restic_compare_date```: Set the date to compare with instead of now (now is default)
+
+- ```-v```: Verbose mode for detailed logs
+## Example
+
+```
+/check_restic -restic_bin /usr/local/bin/restic -restic_repo_passwordfile /files/.my-restic-password -restic_repo /backup/ -restic_check_tags "website" -restic_compare_date "2023-10-26"
+```
