@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+import argparse
+import subprocess
+import json
+import datetime
+
+CHECK_NAME = "restic"
+
+def run(args):
+    base_cmd = '{restic_bin} -p {passwordfile} -r {repo}'.format(restic_bin=args.restic_bin, passwordfile=args.restic_repo_passwordfile, repo=args.restic_repo)
+    process_result = subprocess.Popen([args.restic_bin, '-p', args.restic_repo_passwordfile, '-r', args.restic_repo, '--no-lock', 'snapshots', '--tag', args.restic_check_tags, '--latest', '1', '--json'], stdout=subprocess.PIPE)
+    snapshots = json.loads(process_result.stdout.read())
+
+    crits = 0
+    warns = 0
+    oks = 0
+
+    u_tm = datetime.datetime.utcfromtimestamp(0)
+    l_tm = datetime.datetime.fromtimestamp(0)
+    l_tz = datetime.timezone(l_tm - u_tm)
+    now = datetime.datetime.now().replace(tzinfo=l_tz)
+
+    warn_delta = datetime.timedelta(days=args.restic_snapshot_age_days_warn)
+    crit_delta = datetime.timedelta(days=args.restic_snapshot_age_days_crit)
+
+    for snapshot in snapshots:
+        print(f"Checking snapshot {snapshot['short_id']}")
+        snapshot_ident = f"{snapshot['short_id']} {snapshot['tags']}"
+        s = snapshot['time']
+        sanatized_ts = s[0:s.rfind('.')] + s[s.rfind('+'):].replace(":", "")
+        # TODO timezone parsing
+        snapshot_ts = datetime.datetime.strptime(sanatized_ts, "%Y-%m-%dT%H:%M:%S%z").replace(tzinfo=l_tz)
+        delta_warn = snapshot_ts + warn_delta
+        delta_crit = snapshot_ts + crit_delta
+        # only compare dates, not time
+        if delta_crit.date() - now.date() > crit_delta:
+            print(f"{snapshot_ident}: date {snapshot_ts} is older than warn days {args.restic_snapshot_age_days_warn}: WARN")
+            warns = warns + 1
+        elif delta_warn.date() - now.date() > warn_delta:
+            print(f"{snapshot_ident}: date {snapshot_ts} is older than crit days {args.restic_snapshot_age_days_crit}: CRIT")
+            crits = crits + 1
+        else:
+            print(f"{snapshot_ident}: {snapshot['short_id']} from {snapshot_ts}: OK")
+            oks = oks + 1
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(prog="check_restic", description="Checker Plugin for Restic Backup")
+    parser.add_argument("-restic_bin", type=str, default="/usr/bin/restic")
+    parser.add_argument("-restic_repo_passwordfile", type=str, required=True)
+    parser.add_argument("-restic_repo", type=str, required=True)
+    parser.add_argument("-restic_check_tags", type=str, required=True)
+    parser.add_argument("-restic_snapshot_age_days_warn", type=int, default=1)
+    parser.add_argument("-restic_snapshot_age_days_crit", type=int, default=2)
+    parser.add_argument("-restic_compare_date", type=str, default=datetime.datetime.strftime(datetime.datetime.now(), "%Y-%m-%dT%H:%M:%S.%f%z"))
+    args = parser.parse_args()
+
+    run(args)
+
