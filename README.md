@@ -1,6 +1,6 @@
 # Icinga Restic Check
 
-A check for Restic repositories. With this check you can verify if a certain tag has a snapshot within a timeframe.
+An [Icinga2](https://icinga.com)-Check for [Restic](https://restic.net) deduplicating backup repositories. With this check you can verify if a certain tag has a snapshot within a timeframe.
 When one snapshot exceeds the warn timerange (in days), then WARN is set. If one snapshot exceeds the crit timerange (in days) then CRIT is set. Otherwise OK.
 
 You can check multiple snapshots, the result list is checked. The repo is read without setting a lock (so read only), which improves performance. Python3 is needed but no dependencies.
